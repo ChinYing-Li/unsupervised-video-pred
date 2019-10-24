@@ -1,12 +1,9 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""
-Created on Wed Oct 23 12:30:53 2019
-
-@author: liqinying
-"""
+import torch.nn.functional as F
 import torch.nn as nn
 from .utils import nn_utils
+
+from .SPADE.model.networks.base_network import BaseNetwork
+from .SPADE.models.networks.architecture import SPADEResnetBlock as SPADEResnetBlock
 
 class Pose_Enc(nn.Module):
     
@@ -75,7 +72,7 @@ class App_Enc(nn.Module):
 
     return x
 
-class MaskNet(nn.Module):
+class FGMaskNet(nn.Module):
     """
     Mask Networks, of which the architecure is Unet-like
     Arguments
@@ -97,4 +94,89 @@ class MaskNet(nn.Module):
     
     def forward(self, x):
         pass
+
+class BGMaskNet(nn.Module):
+    """
+        Mask Networks, of which the architecure is Unet-like
+        Arguments
+        n_features: of the semantic
+        n_filter: The number of filters used at each layer
+        kernel_size: the size of kernel (filter).
+        """
     
+    def __init__(self, n_features, norm=None):
+        super(MaskNet, self).__init__()
+        self.inc=nn_utils.inconv(n_features, 32, norm=norm)
+        self.down1=nn_utils.down(32,32, norm=norm)
+        self.down2=nn_utils.down(32,32, norm=norm)
+        self.down3=nn_utils.down(32,32, norm=norm)
+        #have to think about how to concatanete this...
+        self.up1=nn_utils.up(32, 32, norm=norm)
+        self.up2=nn_utils.up(32, 32, norm=norm)
+        pass
+    
+    def forward(self, x):
+        pass
+
+
+##The architecture of the foreground decoder shall follow the generator of SPADE
+class FGdecoder(BaseNetwork):
+    #def modify_commandline_options(parser, is_train):
+    
+    def __init__(self, args):
+        super().__init__()
+        self.args = args
+        
+        if args.ngf:
+            nf = args.ngf # number of generator filter... let's just keep this
+        else:
+            nf=16
+        
+        self.fc = nn.Conv2d(self.args.n_activation, 16 * nf, 3, padding=1)
+        
+        self.head_0 = SPADEResnetBlock(16 * nf, 16 * nf, args)
+        
+        self.G_middle_0 = SPADEResnetBlock(16 * nf, 16 * nf, args)
+        self.G_middle_1 = SPADEResnetBlock(16 * nf, 16 * nf, args)
+        
+        self.up_0 = SPADEResnetBlock(16 * nf, 8 * nf, args)
+        self.up_1 = SPADEResnetBlock(8 * nf, 4 * nf, args)
+        self.up_2 = SPADEResnetBlock(4 * nf, 2 * nf, args)
+        self.up_3 = SPADEResnetBlock(2 * nf, 1 * nf, args)
+        
+        final_nc = nf
+        
+        self.conv_img = nn.Conv2d(final_nc, 3, 3, padding=1)
+        
+    self.up = nn.Upsample(scale_factor=2)
+
+#def compute_latent_vector_size(self, opt):
+
+    def forward(self, input, z=None):
+        seg = input
+        
+        
+        # we downsample segmap and run convolution
+        x = F.interpolate(seg, size=(self.sh, self.sw)) #downsample by a factor of 8; should be modified
+        x = self.fc(x)
+        
+        x = self.head_0(x, seg)
+        
+        x = self.up(x) #use this as well??
+        x = self.G_middle_0(x, seg)
+        
+        x = self.G_middle_1(x, seg)
+        
+        x = self.up(x)
+        x = self.up_0(x, seg)
+        x = self.up(x)
+        x = self.up_1(x, seg)
+        x = self.up(x)
+        x = self.up_2(x, seg)
+        x = self.up(x)
+        x = self.up_3(x, seg)
+        
+        x = self.conv_img(F.leaky_relu(x, 2e-1))
+        x = F.tanh(x)
+        
+        return x
