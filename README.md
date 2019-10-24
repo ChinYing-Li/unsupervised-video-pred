@@ -1,11 +1,20 @@
-# Pipeline reconstruction
+# PyTorch Examples
 
-A repository aiming to reproduce the result in [Unsupervised Disentanglement of Pose, Appearance and Background from Images and Videos](https://openreview.net/forum?id=ryen_CEFwr)
+A repository showcasing examples of using [PyTorch](https://github.com/pytorch/pytorch)
 
-The code is now under testing i.e. buggy, ugly, not working yet.
-Feel free to review the code. Any suggestion for [ChinYing-Li](https://github.com/ChinYing-Li) would be appreciated.
+- [Image classification (MNIST) using Convnets](mnist)
+- [Word level Language Modeling using LSTM RNNs](word_language_model)
+- [Training Imagenet Classifiers with Residual Networks](imagenet)
+- [Generative Adversarial Networks (DCGAN)](dcgan)
+- [Variational Auto-Encoders](vae)
+- [Superresolution using an efficient sub-pixel convolutional neural network](super_resolution)
+- [Hogwild training of shared ConvNets across multiple processes on MNIST](mnist_hogwild)
+- [Training a CartPole to balance in OpenAI Gym with actor-critic](reinforcement_learning)
+- [Natural Language Inference (SNLI) with GloVe vectors, LSTMs, and torchtext](snli)
+- [Time sequence prediction - use an LSTM to learn Sine waves](time_sequence_prediction)
+- [Implement the Neural Style Transfer algorithm on images](fast_neural_style)
+- [Several examples illustrating the C++ Frontend](cpp)
 
-###### The code borrowed heavily from...
-* [pytorch-UNet](https://github.com/cosmic-cortex/pytorch-UNet)
-* [Fast Neural Style Transfer](https://github.com/pytorch/examples/tree/master/fast_neural_style)
-* [SPADE](https://github.com/NVlabs/SPADE)
+Additionally, a list of good examples hosted in their own repositories:
+
+- [Neural Machine Translation using sequence-to-sequence RNN with attention (OpenNMT)](https://github.com/OpenNMT/OpenNMT-py)
