@@ -128,3 +128,12 @@ class outconv(nn.Module):
     def forward(self, x):
         x = self.conv(x)
         return x
+
+class hadamard(nn.Module):
+    def __init__(self):
+        super(hadamard, self).__init__()
+
+    def forward(self, x1, x2):
+        assert x1.size()==x2.size(), "tensors do not have same shape"
+        x = torch.einsum('ij, ij->ij', x1, x2)
+        return x

@@ -72,7 +72,7 @@ class App_Enc(nn.Module):
 
     return x
 
-class FGMaskNet(nn.Module):
+class MaskNet(nn.Module):
     """
     Mask Networks, of which the architecure is Unet-like
     Arguments
@@ -95,7 +95,7 @@ class FGMaskNet(nn.Module):
     def forward(self, x):
         pass
 
-class BGMaskNet(nn.Module):
+class BGNet(nn.Module):
     """
         Mask Networks, of which the architecure is Unet-like
         Arguments
@@ -120,7 +120,7 @@ class BGMaskNet(nn.Module):
 
 
 ##The architecture of the foreground decoder shall follow the generator of SPADE
-class FGdecoder(BaseNetwork):
+class FG_Dec(BaseNetwork):
     #def modify_commandline_options(parser, is_train):
     
     def __init__(self, args):
@@ -148,7 +148,7 @@ class FGdecoder(BaseNetwork):
         
         self.conv_img = nn.Conv2d(final_nc, 3, 3, padding=1)
         
-    self.up = nn.Upsample(scale_factor=2)
+        self.up = nn.Upsample(scale_factor=2)
 
 #def compute_latent_vector_size(self, opt):
 
