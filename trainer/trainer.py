@@ -12,8 +12,11 @@ from .utils.nn_utils import hadamard
 import torch
 import torch.nn as nn
 from torch.optim import Adam
-
-from torchvision import transforms, datasets, DataLoader
+from torch.utils.data import DataLoader, TensorDataset
+###
+from .utils.preprocessing import ImageDataset as img_dt # where class ImageLandmarksDataset is defined
+###
+from torchvision import transforms
 
 import os
 import time
@@ -28,6 +31,7 @@ class PipelineNet(nn.Module):
     self.FGDecoder=FG_Dec()
     self.BG_Net=BGNet()
     self.Gaussian_fit=Gaussian_Fit()
+
   def forward(self,img_cj, img_tps):
 
     x_cj=self.PoseEncoder(img_cj)
@@ -63,59 +67,84 @@ class PipelineTrainer():
 
     def __init__(self, args): #recieve args from somewhere else...
       self.args=args
+      if args.video:
+        pass
+      else:
+        self.data_dir=args.data_dir
+        self.csv_file=args.csv_file
+        self.image_size=args.image_size
       
-      cj_transform = transforms.Compose([
-        transforms.Resize(args.image_size),
-        #transforms.ColorJitter(brightness=args.jitter_brightness, contrast=args.jitter_contrast,\
-        #                       saturation=args.jitter_saturation, hue=args.jitter_hue)
-        # Crop around annotation
-        transforms.ToTensor(),
-        transforms.Lambda(lambda x: x.mul(255))
-        ])
-    
-      #when doing experiment on image datasets, have to use thin-plate-spline to perturb pose
-      tps_transform = transforms.Compose([
-        transforms.Resize(args.image_size),
-        # Crop around annotation
-        transforms.ToTensor(),
-        transforms.Lambda(lambda x: x.mul(255))
-        ])
-      
-      self.device=args.device
-      
-      cj_dataset = datasets.ImageFolder(args.dataset, cj_transform)#???
-      tps_dataset=datasets.ImageFolder(args.dataset, tps_transform)
-      merged_dataset=TensorDataset(cj_dataset, tps_dataset)
-      cj_loader = DataLoader(cj_dataset, batch_size=args.batch_size)
-      tps_loader = DataLoader(tps_dataset, batch_size=args.batch_size)
-        
-      self.vgg=Vgg19(requies_grad=False).to_device(self.device)
-      #one dataset
-      
-      self.args = args
+      self.device=torch.device("cuda" if args.cuda else "cpu")
+
+      #############Get model and initialize training related attributes
       self.model = PipelineNet(args) #get model
+      self.vgg=Vgg19(requies_grad=False).to_device(self.device)
       self.total_loss=0
       self.mse_loss=torch.nn.MSELoss()
-      self.device=torch.device("cuda" if args.cuda else "cpu")
       self.optimizer = Adam(self.pipeline.parameters(), args.lr)
-        
+
+      #########Creating Dataloader###########
+      cj_transform = transforms.Compose([
+        img_dt.Rescale(self.image_size),
   
+        img_dt.ToTensor(),
+        ])
+    
+     
+      tps_transform = transforms.Compose([
+        img_dt.Rescale(args.image_size),
+    
+        img_dt.ToTensor(),
+
+        ])
+      
+      cj_dataset = img_dt.ImageLandmarkDataset(self.root_dir, self.csv_file, cj_transform)#???
+      tps_dataset=img_dt.ImageLandmarkDataset(self.root_dir, self.csv_file, tps_transform)
+      data=TensorDataset(cj_dataset.get_tensor(), tps_dataset.get_tensor())
+      self.loader=DataLoader(data, batch_size=args.batch_size)
+      self.data_lens=len(cj_dataset)
       if args.training:
         pass
       else:
         pass
 
-    def train(self, gt_img,cj_img,tps_img, args):
-      self.total_loss=0
-      reconstructed_img=self.model(cj_img, tps_img)
-      reconstructed = self.vgg(reconstructed_img)
-      gt = self.vgg(gt_img)
-      
-      self.total_loss += self.args.relu1_2_w * self.mse_loss(reconstructed.relu1_2, gt.relu1_2)
-      self.total_loss += self.args.relu2_2_w * self.mse_loss(reconstructed.relu2_2, gt.relu2_2)
-      self.total_loss += self.args.relu3_2_w * self.mse_loss(reconstructed.relu3_2, gt.relu3_2)
-      self.total_loss += self.args.relu4_2_w * self.mse_loss(reconstructed.relu4_2, gt.relu4_2)
-      
+    def train(self, args):
+
+      for epoch in range(args.epochs):
+        self.model.train()
+        self.total_loss=0
+        count=0
+
+        for batch_id, (img_cj, img_tps, gt) in enumerate(self.loader):
+          self.optimizer.zero_grad()
+          img_cj=img_cj.to(self.device)
+          img_tps=img_tps.to(self.device)
+          reconstructed_img=self.model(img_cj, img_tps)
+          reconstructed_perception = self.vgg(reconstructed_img)
+          groundtruth_perception=self.vgg(gt)
+          
+          self.total_loss += self.args.relu1_2_w * self.mse_loss(reconstructed_perception.relu1_2,\
+                                                                 groundtruth_perception.relu1_2)
+          self.total_loss += self.args.relu2_2_w * self.mse_loss(reconstructed_perception.relu2_2, \
+                                                                 groundtruth_perception.relu2_2)
+          self.total_loss += self.args.relu3_2_w * self.mse_loss(reconstructed_perception.relu3_2, \
+                                                                 groundtruth_perception.relu3_2)
+          self.total_loss += self.args.relu4_2_w * self.mse_loss(reconstructed_perception.relu4_2, \
+                                                                 groundtruth_perception.relu4_2)
+          self.total_loss.backward()
+          
+          self.optimizer.step()
+
+          if (batch_id + 1) % args.log_interval == 0:
+            mesg = "{}\tEpoch {}:\t[{}/{}]\t\ttotal: {:.6f}".format(
+                    time.ctime(), epoch + 1, count, self.data_len), (self.total_loss) / (batch_id + 1))
+            print(mesg)
+          if args.checkpoint_model_dir is not None and (batch_id + 1) % args.checkpoint_interval == 0:
+                self.model.eval().cpu()
+                ckpt_model_filename = "ckpt_epoch_" + str(e) + "_batch_id_" + str(batch_id + 1) + ".pth"
+                ckpt_model_path = os.path.join(args.checkpoint_model_dir, ckpt_model_filename)
+                torch.save(self.model.state_dict(), ckpt_model_path)
+                self.model.to(device).train()
       
     
     def save(self, epoch):
@@ -140,7 +169,7 @@ class PipelineTrainer():
             print(e)
             sys.exit(1)
         
-    def logging(self):
+    def logging(self, batch_id):
       if (batch_id + 1) % self.args.log_interval == 0:
                 mesg = "{}\tEpoch {}:\t[{}/{}]\tcontent: {:.6f}\tstyle: {:.6f}\ttotal: {:.6f}".format(
                     time.ctime(), e + 1, count, len(train_dataset),
@@ -149,9 +178,3 @@ class PipelineTrainer():
                                   (agg_content_loss + agg_style_loss) / (batch_id + 1)
                 )
                 print(message)
-            
-    def preprocess_input(self, args):
-      """
-      
-      """
-      pass
