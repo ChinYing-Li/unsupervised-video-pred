@@ -6,15 +6,15 @@ Created on Thu Oct 31 21:10:41 2019
 @author: liqinying
 """
 
-from torchvision import transforms, utils
-
 import numpy as np
-import torch
-from torch.utils.data import Dataset
-from os import listdir
-import cv2
-from cv2 import createThinPlateSplineShapeTransformer
 import pandas as pd
+import torch
+import os
+
+import skimage.io as io
+
+from cv2 import createThinPlateSplineShapeTransformer, DMatch, resize
+from torch.utils.data import Dataset
 
 """
 https://github.com/jbohnslav/opencv_transforms/blob/master/opencv_transforms.py
@@ -44,7 +44,8 @@ class ImageLandmarksDataset(Dataset):
             transform (callable, optional): Optional transform to be applied
                 on a sample.
         """
-    self.landmarks_frame = pd.read_csv(csv_file)
+    # TODO: Change back. This is just to speed up debugging.
+    self.landmarks_frame = pd.read_csv(csv_file).head(100)
     self.root_dir = root_dir
     self.transform = transform
         
@@ -53,11 +54,11 @@ class ImageLandmarksDataset(Dataset):
   
   def __getitem__(self, idx):
     if torch.is_tensor(idx):
-            idx = idx.tolist()
+      idx = idx.tolist()
 
     img_name = os.path.join(self.root_dir,
                                 self.landmarks_frame.iloc[idx, 0])
-    print(img_name)
+    # print(img_name)
     image = io.imread(img_name)
     landmarks = self.landmarks_frame.iloc[idx, 1:]
     landmarks = np.array([landmarks])
@@ -103,7 +104,7 @@ class Rescale(object):
 
         new_h, new_w = int(new_h), int(new_w)
 
-        img = transforms.resize(image, (new_h, new_w))
+        img = resize(image, (new_h, new_w))
 
         # h and w are swapped for landmarks because for images,
         # x and y axes are axis 1 and 0 respectively
@@ -153,7 +154,13 @@ class ColorJitter(object):
     self.hue=hue
   
   def __call__(self, sample):
-    pass
+    img, landmarks = sample['image'], sample['landmarks']
+    img = img * (self.contrast/127+1) - self.contrast + self.brightness
+    img = np.clip(img, 0, 255)
+    img = img.astype(np.double)
+    # (TODO): implement hue/sat.
+    return {'image':img,
+            'landmarks':landmarks}
   
 class ThinPlateSpline(object):
   """
@@ -204,16 +211,15 @@ class ThinPlateSpline(object):
 
     spoints = spoints.reshape(1,-1,2)
     tpoints = tpoints.reshape(1,-1,2)
-    landmarks=landmarks.reshape(1,-1,2)
+    landmarks = landmarks.reshape(1,-1,2)
     matches = list()
 
     for i in range(n_points+4):
-      matches.append(cv2.DMatch(i,i,0))
+      matches.append(DMatch(i,i,0))
 
     tps.estimateTransformation(tpoints,spoints,matches)
-    out_img = tps.warpImage(image)
+    out_img = tps.warpImage(image).astype(np.double)
     
-
     #CAUTION!!! landmarks not transformed!!!
     return {'image':out_img,
             'landmarks':landmarks}

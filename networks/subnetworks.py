@@ -1,8 +1,8 @@
 import torch.nn.functional as F
 import torch.nn as nn
-from .utils import nn_utils
+from utils import nn_utils
 
-from .SPADE.model.networks.base_network import BaseNetwork
+from .SPADE.models.networks.base_network import BaseNetwork
 from .SPADE.models.networks.architecture import SPADEResnetBlock as SPADEResnetBlock
 
 class Pose_Enc(nn.Module):
@@ -105,7 +105,7 @@ class BGNet(nn.Module):
         """
     
     def __init__(self, n_features, norm=None):
-        super(MaskNet, self).__init__()
+        super(BGNet, self).__init__()
         self.inc=nn_utils.inconv(n_features, 32, norm=norm)
         self.down1=nn_utils.down(32,32, norm=norm)
         self.down2=nn_utils.down(32,32, norm=norm)
@@ -132,7 +132,7 @@ class FG_Dec(BaseNetwork):
         else:
             nf=16
         
-        self.fc = nn.Conv2d(self.args.n_activation, 16 * nf, 3, padding=1)
+        self.fc = nn.Conv2d(self.args.appearance_dim, 16 * nf, 3, padding=1)
         
         self.head_0 = SPADEResnetBlock(16 * nf, 16 * nf, args)
         

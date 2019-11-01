@@ -3,6 +3,15 @@ import torch.nn as nn
 
 #NO NUMPY
 
+def cov(t):
+  t_exp=torch.mean(t, dim=1).double()
+  print(t_exp)
+  t_norm=(t-t_exp[:, None]).double()
+  
+  one=1.
+  covariance=one/(t.size(1)-one)*t_norm.mm(t_norm.t())
+  return covariance.double()
+
 class Gaussian_Fit(nn.Module):
    def __init__(self, activation_maps):
     super(Gaussian_Fit, self).__init__()
@@ -35,7 +44,7 @@ class Gaussian_Fit(nn.Module):
         x[i][j]-=mu[i][j]
         #print("\n"+"x[{}][{}]".format(i, j))
         #print(x[i][j])
-        covs[i][j]=self.cov(x[i][j])
+        covs[i][j]=cov(x[i][j])
     
         epsilon=torch.randn(x_shape[2], x_shape[3])/1e7
         #print("epsilon")
@@ -57,13 +66,3 @@ class Gaussian_Fit(nn.Module):
         #print(approx[i][j])
 
     return approx
-    
-    @staticmethod
-    def cov(t):
-      t_exp=torch.mean(t, dim=1).double()
-      print(t_exp)
-      t_norm=(t-t_exp[:, None]).double()
-      
-      one=1.
-      covariance=one/(t.size(1)-one)*t_norm.mm(t_norm.t())
-      return covariance.double()
