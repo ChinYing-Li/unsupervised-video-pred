@@ -34,7 +34,13 @@ def main():
                                   help="size of training images, default is 128 X 128")
   train_arg_parser.add_argument("--lr", type=float, default=1e-5,
                                   help="learning rate, default is 1e-5")
-  train_arg_parser.add_argument("--specnorm", type=bool, default=True,
+  train_arg_parser.add_argument("--n_features", type=int, default=10,
+                                  help="The number of channels in the output of pose encoder; default is 10")
+  train_arg_parser.add_argument("--n_appearance", type=int, default=5,
+                                  help="The number of channel of the appearance encoder; default is 10")
+  train_arg_parser.add_argument("--pose-norm", type=str, default=None,
+                                  help="The type of normalization layer in pose encoder; can take values 'batch', 'instance', or None. default is None")
+  train_arg_parser.add_argument("--spec-norm", type=bool, default=True,
                                   help="Whether to apply spectral normalization to FGdecoder, default is True")
   train_arg_parser.add_argument("--input-channel", type=int, default=3,
                                   help="The channel in input images, default is 3")  

@@ -23,11 +23,11 @@ import time
 
 class PipelineNet(nn.Module):
   def __init__(self, args):
-    super(PipelineNet,self).__init__(args)
+    super(PipelineNet,self).__init__(self)
     
-    self.PoseEncoder=Pose_Enc()
+    self.PoseEncoder=Pose_Enc(args.in_channels, args.n_features, norm=args.specnorm, bilinear)
     self.MaskNet=MaskNet()
-    self.App_Encoder=App_Enc()
+    self.AppEncoder=App_Enc(args.n_features, args.n_appearance)
     self.FGDecoder=FG_Dec()
     self.BG_Net=BGNet()
     self.Gaussian_fit=Gaussian_Fit()
@@ -40,12 +40,16 @@ class PipelineNet(nn.Module):
     gaussian_cj=self.Gaussian_fit(x_cj)
     gaussian_tps=self.Guassian_fit(x_tps)
     
-    x_conflux=self.App_Encoder(x_tps)
+    x_conflux=self.AppEncoder(x_tps)
     x_conflux=self.FGDecoder(torch.cat(x_conflux, gaussian_cj), dim=1)
    
     x_cj=MaskNet(gaussian_cj)
     x_tps=MaskNet(gaussian_tps)
-    
+    """
+     how to do the mask inversion???
+     hadamard already implemented
+     
+    """
     return(x)
 
 class PipelineTrainer():
@@ -68,6 +72,9 @@ class PipelineTrainer():
     def __init__(self, args): #recieve args from somewhere else...
       self.args=args
       if args.video:
+        """
+        yet to implement the module for handling the video dataset
+        """
         pass
       else:
         self.data_dir=args.data_dir
@@ -103,6 +110,7 @@ class PipelineTrainer():
       data=TensorDataset(cj_dataset.get_tensor(), tps_dataset.get_tensor())
       self.loader=DataLoader(data, batch_size=args.batch_size)
       self.data_lens=len(cj_dataset)
+      
       if args.training:
         pass
       else:

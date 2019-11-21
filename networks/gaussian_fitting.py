@@ -1,7 +1,9 @@
 import torch
 import torch.nn as nn
 
-#NO NUMPY
+#################
+## !!!WRONG!!!  ##
+#################
 
 class Gaussian_Fit(nn.Module):
    def __init__(self, activation_maps):
