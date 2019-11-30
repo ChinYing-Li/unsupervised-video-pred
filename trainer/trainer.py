@@ -6,15 +6,23 @@ Created on Mon Oct 28 02:20:45 2019
 @author: liqinying
 """
 
-from .networks import Gaussian_Fit, Pose_Enc, App_Enc, MaskNet, BGNet, FG_Dec, Vgg19
-from .utils.nn_utils import hadamard
+from .networks import heatmap_fit, Pose_Enc, App_Enc, MaskNet, BGNet, FG_Dec, Vgg19
+from .utils.nn_utils import hadamard, invert
+
+#from networks.subnetworks import Pose_Enc, App_Enc, MaskNet, BGNet, FG_Dec
+#from networks.gaussian_fitting import Gaussian_Fit
+#from networks.vgg import Vgg19
+
+#from utils.nn_utils import hadamard
 
 import torch
 import torch.nn as nn
 from torch.optim import Adam
 from torch.utils.data import DataLoader, TensorDataset
+import matplotlib.pyplot as plt
+
 ###
-from .utils.preprocessing import ImageDataset as img_dt # where class ImageLandmarksDataset is defined
+#import utils.preprocessing as img_dt # where class ImageLandmarksDataset is defined
 ###
 from torchvision import transforms
 
@@ -23,34 +31,54 @@ import time
 
 class PipelineNet(nn.Module):
   def __init__(self, args):
-    super(PipelineNet,self).__init__(self)
+    super(PipelineNet,self).__init__()
     
-    self.PoseEncoder=Pose_Enc(args.in_channels, args.n_features, norm=args.specnorm, bilinear)
-    self.MaskNet=MaskNet()
-    self.AppEncoder=App_Enc(args.n_features, args.n_appearance)
-    self.FGDecoder=FG_Dec()
-    self.BG_Net=BGNet()
-    self.Gaussian_fit=Gaussian_Fit()
+    self.n_heatmaps = args.n_heatmaps
+    self.n_appearance = args.n_appearance
+    self.norm = 'Batch'
 
-  def forward(self,img_cj, img_tps):
+    # For SPADE. what the hell am I trying to do?
+    self.semantic_nc = args.n_heatmaps#???
+
+    self.PoseEncoder=Pose_Enc(3, self.n_heatmaps, norm=self.norm)
+    self.MaskNet=MaskNet(self.n_heatmaps, norm=self.norm)
+    self.App_Encoder=App_Enc(args, norm=self.norm)
+    self.FGDecoder=FG_Dec(args)
+    self.BG_Net=BGNet()
+    self.heatmap_fit=heatmap_fit(n_heatmaps=self.n_heatmaps, batch_size=args.batch_size)
+    self.hadamard=hadamard()
+    self.inv=invert()
+    #I think we don't have to define hadamard and invert as members...
+
+  def forward(self, x1, x2):
+    img_cj=x1
+    img_tps=x2
 
     x_cj=self.PoseEncoder(img_cj)
     x_tps=self.PoseEncoder(img_tps)
     
-    gaussian_cj=self.Gaussian_fit(x_cj)
-    gaussian_tps=self.Guassian_fit(x_tps)
+    gaussian_cj=self.heatmap_fit(x_cj)
+    gaussian_tps=self.heatmap_fit(x_tps)
     
-    x_conflux=self.AppEncoder(x_tps)
-    x_conflux=self.FGDecoder(torch.cat(x_conflux, gaussian_cj), dim=1)
+    x_app=self.App_Encoder(img_tps, map1=x_tps, map2=gaussian_cj)
+    x_foreground=self.FGDecoder(gaussian_cj ,appearance_enco=x_app)
    
-    x_cj=MaskNet(gaussian_cj)
-    x_tps=MaskNet(gaussian_tps)
-    """
-     how to do the mask inversion???
-     hadamard already implemented
-     
-    """
-    return(x)
+    x_cj=self.MaskNet(gaussian_cj)
+    inv_cj=self.inv(x_cj)
+    x_tps=self.MaskNet(gaussian_tps)
+    inv_tps=self.inv(x_tps)
+    inv_tps=inv_tps.repeat(1, 3, 1, 1)
+    x_background=self.hadamard(inv_tps, img_tps)
+    x_background=self.BG_Net(x_background)
+    x_cj=x_cj.repeat(1,3,1,1)
+    x_foreground=self.hadamard(x_cj, x_foreground)
+
+    inv_cj=inv_cj.repeat(1, 3, 1, 1)
+    x_background=self.hadamard(inv_cj, x_background)
+    out=x_foreground+x_background
+    print(out.shape)
+    
+    return out
 
 class PipelineTrainer():
     """
@@ -70,63 +98,44 @@ class PipelineTrainer():
     """
 
     def __init__(self, args): #recieve args from somewhere else...
-      self.args=args
-      if args.video:
-        """
-        yet to implement the module for handling the video dataset
-        """
+      self.args = args
+      if args.is_video:
         pass
       else:
-        self.data_dir=args.data_dir
+        self.root_dir=args.data_dir
         self.csv_file=args.csv_file
-        self.image_size=args.image_size
       
       self.device=torch.device("cuda" if args.cuda else "cpu")
 
       #############Get model and initialize training related attributes
-      self.model = PipelineNet(args) #get model
-      self.vgg=Vgg19(requies_grad=False).to_device(self.device)
+      self.model = PipelineNet(args).to(self.device) #get model
+      self.vgg=Vgg19(requires_grad=False).to(self.device)
       self.total_loss=0
       self.mse_loss=torch.nn.MSELoss()
-      self.optimizer = Adam(self.pipeline.parameters(), args.lr)
+      self.optimizer = Adam(self.model.parameters(), args.lr)
 
-      #########Creating Dataloader###########
-      cj_transform = transforms.Compose([
-        img_dt.Rescale(self.image_size),
-  
-        img_dt.ToTensor(),
-        ])
-    
-     
-      tps_transform = transforms.Compose([
-        img_dt.Rescale(args.image_size),
-    
-        img_dt.ToTensor(),
+      # if args.training:
+      #   pass
+      # else:
+      #   pass
 
-        ])
+    def train(self, args, dataloader=None):
       
-      cj_dataset = img_dt.ImageLandmarkDataset(self.root_dir, self.csv_file, cj_transform)#???
-      tps_dataset=img_dt.ImageLandmarkDataset(self.root_dir, self.csv_file, tps_transform)
-      data=TensorDataset(cj_dataset.get_tensor(), tps_dataset.get_tensor())
-      self.loader=DataLoader(data, batch_size=args.batch_size)
-      self.data_lens=len(cj_dataset)
-      
-      if args.training:
-        pass
-      else:
-        pass
-
-    def train(self, args):
+      if dataloader is None:
+        raise RuntimeError("no input data")
 
       for epoch in range(args.epochs):
         self.model.train()
         self.total_loss=0
         count=0
 
-        for batch_id, (img_cj, img_tps, gt) in enumerate(self.loader):
+        for batch_id, (img_cj, img_tps, gt) in enumerate(dataloader):
           self.optimizer.zero_grad()
           img_cj=img_cj.to(self.device)
           img_tps=img_tps.to(self.device)
+
+          
+
           reconstructed_img=self.model(img_cj, img_tps)
           reconstructed_perception = self.vgg(reconstructed_img)
           groundtruth_perception=self.vgg(gt)
@@ -145,21 +154,22 @@ class PipelineTrainer():
 
           if (batch_id + 1) % args.log_interval == 0:
             mesg = "{}\tEpoch {}:\t[{}/{}]\t\ttotal: {:.6f}".format(
-                    time.ctime(), epoch + 1, count, self.data_len), (self.total_loss) / (batch_id + 1))
+                    time.ctime(), epoch + 1, count, self.data_len, (self.total_loss) / (batch_id + 1))
+            plt.imshow(reconstructed_img.detach().numpy())
             print(mesg)
           if args.checkpoint_model_dir is not None and (batch_id + 1) % args.checkpoint_interval == 0:
                 self.model.eval().cpu()
-                ckpt_model_filename = "ckpt_epoch_" + str(e) + "_batch_id_" + str(batch_id + 1) + ".pth"
+                ckpt_model_filename = "ckpt_epoch_" + str(epoch) + "_batch_id_" + str(batch_id + 1) + ".pth"
                 ckpt_model_path = os.path.join(args.checkpoint_model_dir, ckpt_model_filename)
                 torch.save(self.model.state_dict(), ckpt_model_path)
-                self.model.to(device).train()
+                self.model.to(self.device).train()
       
     
     def save(self, epoch):
          # save model
       self.model.eval().cpu()
       save_model_filename = "epoch_" + str(self.args.epochs) + "_" + str(time.ctime()).replace(' ', '_') + "_" + str(
-      args.content_weight) + "_" + str(args.style_weight) + ".model"
+      self.args.content_weight) + "_" + str(self.args.style_weight) + ".model"
       save_model_path = os.path.join(args.save_model_dir, save_model_filename)
       torch.save(transformer.state_dict(), save_model_path)
 
