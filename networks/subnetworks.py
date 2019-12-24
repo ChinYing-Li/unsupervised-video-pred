@@ -43,8 +43,6 @@ class Pose_Enc(nn.Module):
         x = self.up3(x, x2)
         x = self.up4(x, x1)
         x = self.outc(x)
-        print("Pose encoder output\n")
-        print(x.shape)
 
         #x is the ultimate ouput of Pose_Enc; 
         # x1 will be fed to Appearance encoder (if following Lorentz. et al.)
@@ -85,27 +83,13 @@ class App_Enc(nn.Module):
     fitted_cj=map2
 
     #this is the approach in Lorentz et al.
-    #inp=torch.cat(img_enc, raw_tps, dim=1)
-
     x1=self.inc(img)
     x2=self.down1(x1)
     x3=self.mid(x2)
     x=self.up1(x3,x2)
     x=self.up2(x,x1)
     x=self.outc(x)
-    print(x.shape)
     app_vec=torch.Tensor(self.batch_size, self.n_heatmaps, self.n_appearance).cuda()
-    
-    for b in range(self.batch_size):
-      for i in range(self.n_heatmaps):
-        #softmax normalize the (not gaussian fitted) heatmaps
-        p=torch.nn.functional.softmax(raw_tps[b][i])
-        p=torch.unsqueeze(p, 0)
-        p=p.repeat(self.n_appearance, 1, 1)
-        p=torch.mul(x[b], p)
-        app_vec[b][i]=torch.sum(torch.sum(p, 2), 1)
-    print("appearance encoder output vector\n")
-    print(app_vec.shape)
 
     #appearance vec -- k c-dimensional vector
     #project to the fitted color jittered image
@@ -123,13 +107,10 @@ class App_Enc(nn.Module):
 
     denominator=denominator.repeat(1,1,1,self.n_appearance)
     #app_enc shape: batch_size x H x W x n_appearance
-    # should we transpose this... i think we should
     app_enco=x/denominator
     app_enco=torch.transpose(app_enco, 2,3)
     app_enco=torch.transpose(app_enco,1,2)
     #app_enc shape: batch_size x n_apprance x H x W 
-    print("app encoder output")
-    print(app_enco.shape)
     return app_enco
 
 class MaskNet(nn.Module):
@@ -163,9 +144,6 @@ class MaskNet(nn.Module):
         x = self.up3(x, x1)
         x = self.outc(x)
         x=torch.sigmoid(x)
-
-        print("masknet output\n")
-        print(x.shape)
         return x
 
 class BGNet(nn.Module):
@@ -196,17 +174,12 @@ class BGNet(nn.Module):
     x = self.up3(x, x2)
     x = self.up3(x, x1)
     x = self.outc(x)
-    print("BGNet output vector\n")
-    print(x.shape)
     return x
 
 
-##The architecture of the foreground decoder shall follow the generator of SPADE
+##The architecture of the foreground decoder follows that of the generator of SPADE
 class FG_Dec(BaseNetwork):
-    #def modify_commandline_options(parser, is_train):
-    
-    def __init__(self, args):
-        super().__init__()
+    super(self, FG_Dec).__init__()
         self.args = args
         args.norm_G='spectralspadebatch3x3'
         self.sw, self.sh = self.modified_downsampling(args)
@@ -229,18 +202,17 @@ class FG_Dec(BaseNetwork):
         
         self.head_0 = FGResnetBlock(16 * nf, 16 * nf, args)
         
-        self.G_middle_0 = FGResnetBlock(16 * nf, 16 * nf, args)
-        self.G_middle_1 = FGResnetBlock(16 * nf, 16 * nf, args)
+        #self.G_middle_0 = FGResnetBlock(16 * nf, 16 * nf, args)
+        #self.G_middle_1 = FGResnetBlock(16 * nf, 16 * nf, args)
         
         self.up_0 = FGResnetBlock(16 * nf, 8 * nf, args)
         self.up_1 = FGResnetBlock(8 * nf, 4 * nf, args)
-        self.up_2 = FGResnetBlock(4 * nf, 3, args)
-        #self.up_3 = FGResnetBlock(2 * nf, 1 * nf, args)
+        self.up_2 = FGResnetBlock(4 * nf, 2*nf, args)
+        self.up_3 = FGResnetBlock(2 * nf, 1 * nf, args)
         
-        final_nc = 3
+        final_nc = 1*nf
         
         self.conv_img = nn.Conv2d(final_nc, 3, 3, padding=1)
-        
         self.up = nn.Upsample(scale_factor=2)
 
     def modified_downsampling(self, args):
@@ -269,8 +241,6 @@ class FG_Dec(BaseNetwork):
         #input is the heat map
         # z is the vectors from Appearence encoder 
         seg=heatmaps
-        print("app enco")
-        print(appearance_enco.shape)
 
         if self.args.use_vae:
             # we sample z from unit normal and reshape the tensor
@@ -284,24 +254,15 @@ class FG_Dec(BaseNetwork):
             x = F.interpolate(appearance_enco, size=(self.sh, self.sw))
             x = self.fc(x)
         
-        x = self.head_0(x, seg)
+         x = self.head_0(x, seg)
         
-        x = self.up(x) #use this as well??
-        x = self.G_middle_0(x, seg)
-        
-        x = self.G_middle_1(x, seg)
-        
-        x = self.up(x)
         x = self.up_0(x, seg)
         x = self.up(x)
         x = self.up_1(x, seg)
         x = self.up(x)
         x = self.up_2(x, seg)
-        #x = self.up(x)
-        #x = self.up_3(x, seg)
-        
+        x = self.up(x)
+        x = self.up_3(x, seg)
         x = self.conv_img(F.leaky_relu(x, 2e-1))
         x = F.tanh(x)
-        print("App decoder output vector\n")
-        print(x.shape)
         return x
